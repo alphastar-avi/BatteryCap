@@ -1,4 +1,4 @@
-# Batterycap (Go Edition)
+# Batterycap
 
 A lightweight, native battery charging limiter and hardware power passthrough CLI for Apple Silicon Macs running **macOS 27 Golden Gate** (and macOS 15+ Sequoia).
 
@@ -32,7 +32,8 @@ A lightweight, native battery charging limiter and hardware power passthrough CL
 ## Building & Installing
 
 ```bash
-cd /Users/avinash/Desktop/blurr/Batterycap
+git clone https://github.com/alphastar-avi/BatteryCap.git
+cd BatteryCap
 make build
 make install # copies binary to ~/.local/bin/batterycap
 ```
