@@ -248,13 +248,20 @@ func printStatus(jsonOutput bool) {
 	fmt.Printf("%s──────────────────────────────────────────────────────────────────%s\n", colorGray, colorReset)
 	if hw.ExternalConnected {
 		if hw.UIState == 18 {
-			// ChargingUpForGauging: Apple's periodic battery calibration
-			fmt.Printf("  %sCharging Mode:%s           %s%sBattery Calibration Active%s (Target: 100%% temporary)\n",
-				colorBold, colorReset, colorBold, colorYellow, colorReset)
-			fmt.Printf("  %sCalibration Note:%s        macOS powerd is running an occasional calibration charge to\n",
-				colorYellow, colorReset)
-			fmt.Printf("                           maintain gas gauge accuracy. %s%d%% limit will auto-resume%s after.\n",
-				colorBold, mcl.Limit, colorReset)
+			if !hw.IsCharging && hw.CurrentCapacity >= 99 {
+				fmt.Printf("  %sCharging Mode:%s           %s%sCalibration Complete — Hardware Passthrough Engaged%s\n",
+					colorBold, colorReset, colorBold, colorGreen, colorReset)
+				fmt.Printf("  %sPassthrough Telemetry:%s   Battery reached 100%%. Passthrough active (0 mA). %s%d%% limit will auto-resume%s on next cycle.\n",
+					colorGray, colorReset, colorBold, mcl.Limit, colorReset)
+			} else {
+				// ChargingUpForGauging: Apple's periodic battery calibration
+				fmt.Printf("  %sCharging Mode:%s           %s%sBattery Calibration Active%s (Target: 100%% temporary)\n",
+					colorBold, colorReset, colorBold, colorYellow, colorReset)
+				fmt.Printf("  %sCalibration Note:%s        macOS powerd is running an occasional calibration charge to\n",
+					colorYellow, colorReset)
+				fmt.Printf("                           maintain gas gauge accuracy. %s%d%% limit will auto-resume%s after.\n",
+					colorBold, mcl.Limit, colorReset)
+			}
 		} else if hw.IsCharging {
 			fmt.Printf("  %sCharging Mode:%s           %sCharging Active%s (Target Cap: %d%%)\n",
 				colorBold, colorReset, colorYellow, colorReset, mcl.Limit)
