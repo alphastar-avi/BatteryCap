@@ -115,18 +115,12 @@ func getMCLInfo() (MCLInfo, error) {
 }
 
 func isValidLimit(limit int) bool {
-	valid := []int{80, 85, 90, 95, 100}
-	for _, v := range valid {
-		if limit == v {
-			return true
-		}
-	}
-	return false
+	return limit >= 80 && limit <= 100
 }
 
 func setMCLLimit(limit int) error {
 	if !isValidLimit(limit) {
-		return fmt.Errorf("limit %d%% is not supported by Apple Silicon PMU.\n    macOS hardware firmware strictly restricts native limits to: 80, 85, 90, 95, 100%%\n    (Values below 80%% are locked out by Apple's BMS to guarantee transient voltage stability under load)", limit)
+		return fmt.Errorf("limit %d%% is out of bounds (supported native range: 80%% – 100%%).\n    macOS firmware enforces an 80%% minimum floor to guarantee peak load voltage stability", limit)
 	}
 
 	var errBuf [256]C.char
@@ -395,7 +389,7 @@ func printHelp() {
                    Example: %s on 80
 
   %sset <limit>%s       Set active charge limit percentage directly.
-                   Supported values: 80, 85, 90, 95, 100.
+                   Supported range: 80 - 100% (e.g. 80, 82, 85, 90).
                    Example: %s set 85
 
   %s<number>%s          Shortcut to set and engage a limit directly.
@@ -473,8 +467,8 @@ func main() {
 		}
 		if len(os.Args) >= 3 {
 			n, err := strconv.Atoi(os.Args[2])
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s[!] Invalid limit '%s'. Supported: 80, 85, 90, 95, 100%s\n", colorRed, os.Args[2], colorReset)
+			if err != nil || n < 80 || n > 100 {
+				fmt.Fprintf(os.Stderr, "%s[!] Invalid limit '%s'. Supported range: 80 - 100%%%s\n", colorRed, os.Args[2], colorReset)
 				os.Exit(1)
 			}
 			targetLimit = n
@@ -495,8 +489,8 @@ func main() {
 			os.Exit(1)
 		}
 		targetLimit, err := strconv.Atoi(os.Args[2])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s[!] Invalid limit '%s'. Supported: 80, 85, 90, 95, 100%s\n", colorRed, os.Args[2], colorReset)
+		if err != nil || targetLimit < 80 || targetLimit > 100 {
+			fmt.Fprintf(os.Stderr, "%s[!] Invalid limit '%s'. Supported range: 80 - 100%%%s\n", colorRed, os.Args[2], colorReset)
 			os.Exit(1)
 		}
 		if err := setMCLLimit(targetLimit); err != nil {
@@ -539,8 +533,8 @@ func main() {
 		}
 		if len(os.Args) >= 3 {
 			n, err := strconv.Atoi(os.Args[2])
-			if err != nil || n < 80 || n > 95 {
-				fmt.Fprintf(os.Stderr, "%s[!] Invalid limit '%s'. Supported: 80, 85, 90, 95%s\n", colorRed, os.Args[2], colorReset)
+			if err != nil || n < 80 || n > 99 {
+				fmt.Fprintf(os.Stderr, "%s[!] Invalid limit '%s'. Supported range: 80 - 99%%%s\n", colorRed, os.Args[2], colorReset)
 				os.Exit(1)
 			}
 			targetLimit = n
