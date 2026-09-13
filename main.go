@@ -166,6 +166,19 @@ func overrideFull() error {
 	return nil
 }
 
+func cancelCalibration(limit int) error {
+	var errBuf [256]C.char
+	res := C.BatteryCancelCalibration(C.uchar(limit), &errBuf[0], C.int(len(errBuf)))
+	if res != 0 {
+		errMsg := C.GoString(&errBuf[0])
+		if errMsg == "" {
+			errMsg = "unknown error"
+		}
+		return fmt.Errorf("%s", errMsg)
+	}
+	return nil
+}
+
 func progressBar(percent int, width int) string {
 	if percent < 0 {
 		percent = 0
@@ -345,14 +358,18 @@ func printHelp() {
 
   %soff%s, %sdisable%s     Disable native charge limit (restores default full charging to 100%%).
 
-  %scharge-to-full%s   Temporarily override limit to 100%% for the current session without
-  %soverride%s         modifying your saved charge threshold.
+  %scancel-calibration%s   Cancel active 100%% calibration and lock charging at target cap.
+  %suncalibrate%s          Aliases: stop-calibration, uncalibrate.
+                       Example: %s uncalibrate
 
-  %slimits%s           List all hardware charge limit thresholds supported by this Mac.
+  %scharge-to-full%s       Temporarily override limit to 100%% for the current session without
+  %soverride%s             modifying your saved charge threshold.
 
-  %swatch%s            Live updating dashboard monitoring battery SoC, current, and passthrough.
+  %slimits%s               List all hardware charge limit thresholds supported by this Mac.
 
-  %shelp%s, %s-h%s, %s--help%s Show this command reference.
+  %swatch%s                Live updating dashboard monitoring battery SoC, current, and passthrough.
+
+  %shelp%s, %s-h%s, %s--help%s     Show this command reference.
 
 %sSAFETY & ARCHITECTURE:%s
   • Native Apple Silicon: Leverages macOS PowerUI.framework and powerd Mach XPC.
@@ -372,7 +389,10 @@ func printHelp() {
 		colorBold, colorReset, prog,
 		colorBold, colorReset, prog,
 		colorBold, colorReset, colorBold, colorReset,
-		colorBold, colorReset, colorBold, colorReset,
+		colorBold, colorReset,
+		colorBold, colorReset, prog,
+		colorBold, colorReset,
+		colorBold, colorReset,
 		colorBold, colorReset,
 		colorBold, colorReset,
 		colorBold, colorReset, colorBold, colorReset, colorBold, colorReset,
@@ -448,6 +468,25 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("%s[✓] Session override active: charging to 100%% once without altering saved limit.%s\n", colorCyan, colorReset)
+
+	case "cancel-calibration", "uncalibrate", "stop-calibration", "abort-calibration":
+		targetLimit := 80
+		mcl, errMcl := getMCLInfo()
+		if errMcl == nil && mcl.Limit > 0 {
+			targetLimit = mcl.Limit
+		}
+		if len(os.Args) >= 3 {
+			n, err := strconv.Atoi(os.Args[2])
+			if err == nil {
+				targetLimit = n
+			}
+		}
+		if err := cancelCalibration(targetLimit); err != nil {
+			fmt.Fprintf(os.Stderr, "%s[!] Failed to cancel calibration: %v%s\n", colorRed, err, colorReset)
+			os.Exit(1)
+		}
+		fmt.Printf("%s[✓] Calibration charge cancelled. Limit locked to %d%% (hardware passthrough active).%s\n", colorGreen, targetLimit, colorReset)
+		fmt.Printf("%s    macOS powerd/PowerUI session target overridden. Mac will not charge to 100%%.%s\n", colorGray, colorReset)
 
 	case "limits":
 		mcl, err := getMCLInfo()

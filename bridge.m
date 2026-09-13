@@ -297,3 +297,39 @@ int BatteryOverrideFull(char *errBuf, int errBufLen) {
         return 0;
     }
 }
+
+int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen) {
+    @autoreleasepool {
+        id client = getPowerUIClient();
+        if (!client) {
+            if (errBuf && errBufLen > 0) snprintf(errBuf, errBufLen, "PowerUI client unavailable");
+            return -1;
+        }
+
+        NSError *err = nil;
+
+        // 1. Temporarily override MCL target SoC to the requested limit (e.g. 80 or 85)
+        // This instantly interrupts ChargingUpForGauging (UI state 18 / mode 7) and forces ChargingToMCL
+        SEL s_ov = NSSelectorFromString(@"temporarilyOverrideMCLTargetSoC:error:");
+        if ([client respondsToSelector:s_ov]) {
+            BOOL (*ovFn)(id, SEL, unsigned char, NSError **) = (BOOL (*)(id, SEL, unsigned char, NSError **))[client methodForSelector:s_ov];
+            ovFn(client, s_ov, limit, &err);
+        }
+
+        // 2. Re-assert the persistent MCL limit to lock in hardware passthrough
+        SEL s_set = NSSelectorFromString(@"setMCLLimit:error:");
+        if ([client respondsToSelector:s_set]) {
+            BOOL (*setFn)(id, SEL, unsigned char, NSError **) = (BOOL (*)(id, SEL, unsigned char, NSError **))[client methodForSelector:s_set];
+            BOOL ok = setFn(client, s_set, limit, &err);
+            if (!ok || err) {
+                if (errBuf && errBufLen > 0) {
+                    snprintf(errBuf, errBufLen, "%s", err ? [[err localizedDescription] UTF8String] : "failed to re-set limit");
+                }
+                return -1;
+            }
+        }
+
+        return 0;
+    }
+}
+

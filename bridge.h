@@ -38,6 +38,9 @@ int BatteryDisableMCL(char *errBuf, int errBufLen);
 // Temporarily overrides MCL to 100% for current session
 int BatteryOverrideFull(char *errBuf, int errBufLen);
 
+// Cancels an active 100% calibration charge and forces charging back to the target limit
+int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen);
+
 #ifdef __cplusplus
 }
 #endif
