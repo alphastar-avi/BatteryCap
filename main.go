@@ -336,13 +336,7 @@ func printStatus(jsonOutput bool) {
 	fmt.Printf("  %sManual Charge Limit (MCL):%s %s\n", colorBold, colorReset, mclStatusStr)
 	fmt.Printf("  %sActive Charge Limit:%s      %s%d%%%s\n", colorBold, colorReset, colorBold, mcl.Limit, colorReset)
 
-	if len(mcl.AvailableLimits) > 0 {
-		limitsStr := make([]string, len(mcl.AvailableLimits))
-		for i, l := range mcl.AvailableLimits {
-			limitsStr[i] = fmt.Sprintf("%d%%", l)
-		}
-		fmt.Printf("  %sAvailable Native Limits:%s  [ %s ]\n", colorBold, colorReset, strings.Join(limitsStr, ", "))
-	}
+	fmt.Printf("  %sAvailable Native Limits:%s  80%% – 100%% (1%% increments)\n", colorBold, colorReset)
 
 	fmt.Printf("%s──────────────────────────────────────────────────────────────────%s\n", colorGray, colorReset)
 	fmt.Printf("  %sRuntime Architecture:%s    Apple PowerUI / powerd Mach XPC\n\n", colorGray, colorReset)
@@ -554,12 +548,12 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("\n%sSupported Native Hardware Limits:%s\n", colorBold, colorReset)
-		for _, l := range mcl.AvailableLimits {
-			selected := " "
-			if l == mcl.Limit && mcl.Enabled {
-				selected = "*"
-			}
-			fmt.Printf("  [%s] %d%%\n", selected, l)
+		fmt.Printf("  Supported Range: 80%% – 100%% (Any 1%% integer supported)\n")
+		fmt.Printf("  System Presets:  [ 80%%, 85%%, 90%%, 95%%, 100%% ]\n")
+		if mcl.Enabled {
+			fmt.Printf("  Active Limit:    %d%%\n", mcl.Limit)
+		} else {
+			fmt.Printf("  Active Limit:    100%% (Limiter disabled)\n")
 		}
 		fmt.Println()
 
