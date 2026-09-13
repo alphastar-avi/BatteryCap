@@ -37,8 +37,8 @@ Rather than attempting to bypass SIP, patch kernel extensions, or force unauthor
 | :--- | :--- | :--- |
 | `batterycap status` | `batterycap` | View current battery SoC, power source, charging mode, passthrough state, real battery health (e.g. 87%), and active limit. |
 | `batterycap status -j` | `batterycap -j`, `--json` | Output full telemetry & configuration in machine-readable **JSON** format (useful for Sketchybar, Waybar, tmux). |
-| `batterycap on [limit]` | `batterycap 80` | Turn on charge limiting and engage hardware passthrough. Defaults to **80%** if omitted. |
-| `batterycap set <limit>` | `batterycap <number>` | Set a specific hardware charge limit. Supported: **`80`** to **`100`** (e.g. `80`, `82`, `85`, `90`). |
+| `batterycap on [limit]` | `batterycap 80`, `batterycap 82` | Turn on charge limiting and engage hardware passthrough (80% – 100%). Defaults to **80%** if omitted. |
+| `batterycap set <limit>` | `batterycap <number>` | Set a specific hardware charge limit with **1% granularity** (e.g. `batterycap 82`, `batterycap set 87`). Supported range: **`80`** to **`100`**. |
 | `batterycap off` | `batterycap disable` | Disable charging limiter (restores normal full charging up to 100%). |
 | `batterycap cancel-calibration` | `batterycap uncalibrate`, `resume`, `cancel-override` | Cancel an active 100% calibration charge cycle or temporary session override and lock charging immediately back to your target cap (e.g. 80% or 85%). |
 | `batterycap charge-to-full`| `batterycap override` | Temporarily charge to 100% for the current session without altering your saved charge cap. |
