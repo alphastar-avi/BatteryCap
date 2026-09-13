@@ -338,6 +338,16 @@ func printStatus(jsonOutput bool) {
 
 	fmt.Printf("  %sAvailable Native Limits:%s  80%% – 100%% (1%% increments)\n", colorBold, colorReset)
 
+	presetsStr := "[ 80%, 85%, 90%, 95%, 100% ]"
+	if len(mcl.AvailableLimits) > 0 {
+		var parts []string
+		for _, l := range mcl.AvailableLimits {
+			parts = append(parts, fmt.Sprintf("%d%%", l))
+		}
+		presetsStr = fmt.Sprintf("[ %s ]", strings.Join(parts, ", "))
+	}
+	fmt.Printf("  %sSystem Presets:%s           %s\n", colorBold, colorReset, presetsStr)
+
 	fmt.Printf("%s──────────────────────────────────────────────────────────────────%s\n", colorGray, colorReset)
 	fmt.Printf("  %sRuntime Architecture:%s    Apple PowerUI / powerd Mach XPC\n\n", colorGray, colorReset)
 }
