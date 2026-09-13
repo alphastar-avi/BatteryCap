@@ -270,11 +270,11 @@ func printStatus(jsonOutput bool) {
 		return
 	}
 
-	fmt.Printf("\n%s%sBatterycap — macOS Golden Gate Native Battery Limiter%s\n", colorBold, colorCyan, colorReset)
+	fmt.Printf("\n%s%sBatterycap%s\n", colorBold, colorCyan, colorReset)
 	fmt.Printf("%s──────────────────────────────────────────────────────────────────%s\n", colorGray, colorReset)
 
 	// Hardware Controller & Source
-	fmt.Printf("  %sHardware Controller:%s     %s (Apple Silicon PMU)\n", colorBold, colorReset, hw.DeviceName)
+	fmt.Printf("  %sHardware Controller:%s     %s\n", colorBold, colorReset, hw.DeviceName)
 
 	powerSourceStr := fmt.Sprintf("%sAC Power Adapter (Connected)%s", colorGreen, colorReset)
 	if !hw.ExternalConnected {
@@ -351,7 +351,7 @@ func printStatus(jsonOutput bool) {
 	}
 
 	fmt.Printf("%s──────────────────────────────────────────────────────────────────%s\n", colorGray, colorReset)
-	fmt.Printf("  %sRuntime Architecture:%s    Apple PowerUI / powerd Mach XPC (0 MB persistent RAM)\n\n", colorGray, colorReset)
+	fmt.Printf("  %sRuntime Architecture:%s    Apple PowerUI / powerd Mach XPC\n\n", colorGray, colorReset)
 }
 
 func runWatchMode() {
@@ -380,7 +380,7 @@ func printHelp() {
 	}
 
 	fmt.Printf(`
-%s%sBatterycap — macOS Golden Gate Native Battery Limiter & Passthrough CLI%s
+%s%sBatterycap — Native Battery Limiter & Passthrough CLI%s
 
 %sUSAGE:%s
   %s [command] [options]

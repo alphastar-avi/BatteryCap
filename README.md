@@ -2,14 +2,25 @@
 
 A lightweight, native battery charging limiter and hardware power passthrough CLI for Apple Silicon Macs running **macOS 27 Golden Gate** (and macOS 15+ Sequoia).
 
-## Why Batterycap?
+---
 
-* **Native PowerUI / powerd Integration**: Does **not** write to deprecated/guarded SMC keys (`CH0B`, `CH0C`, `CH0I`, `CH0J`). Zero risk of BMS register corruption or kernel panics.
-* **True Hardware Passthrough**: When charging reaches the target cap (e.g., 80%), the Apple PMU and TI `bq40z651` gas gauge open the battery charging FETs. The Mac runs 100% on external AC power (USB-C PD VBUS rail) with zero net battery draw.
-* **Hardware Fail-Safe**: Power disconnection triggers an analog nanosecond-speed hardware failover to battery power directly at the PMIC level.
-* **Zero Background RAM Overhead**: No background daemon, no Electron, no continuous polling. The CLI executes, applies the change via Apple's native Mach XPC service, and exits immediately.
-* **Smart Calibration Awareness**: Automatically detects and informs you when macOS runs its occasional BMS recalibration charge (`ChargingUpForGauging`) to maintain gas gauge accuracy.
-* **No SIP Disabling or Root Required**: Works completely within standard user permissions.
+## Background & Architecture
+
+### Why Legacy SMC Register Approaches No Longer Work
+Historically, charge limiter utilities on macOS managed battery charge thresholds by writing directly to legacy Apple SMC registers (primarily `CH0B`, `CH0C`, or `CH0I`) to inhibit battery charging.
+
+On modern macOS releases (macOS 15+ Sequoia and macOS 27 Golden Gate):
+* **Registers are Deprecated/Removed**: The legacy keys (`CH0B`, `CH0C`, `CH0I`) are no longer populated or active in Apple's SMC tree.
+* **Kernel SIP Restrictions**: The modern charging control register (`CHIB`) is strictly guarded by kernel-level System Integrity Protection (SIP) entitlements (`com.apple.private.applesmc.user-client-access`). Attempting to write directly to the SMC client fails with `kIOReturnNotPrivileged` (`0xe00002c1`), even when running as `root` via `sudo`.
+
+### The Native PowerUI / powerd Approach
+Rather than attempting to bypass SIP, patch kernel extensions, or force unauthorized SMC writes, **Batterycap** interfaces directly with macOS's native battery subsystem via `PowerUI.framework` and `powerd` Mach XPC:
+
+* **Native Mach XPC Interface**: Directly communicates with Apple's `com.apple.powerui.smartChargeManager` XPC service in user-space.
+* **Manual Charge Limit (MCL)**: Natively configures hardware charge limits (**80%**, **85%**, **90%**, **95%**) supported by Apple Silicon PMUs.
+* **True Hardware Passthrough**: Once the battery reaches the target cap, the Power Management Unit (PMU) disengages charging circuitry (`PMUConfigured = 0`, `NotChargingReason = 0x01000000`). The Mac runs 100% on external AC power from the USB-C rail with 0 net battery draw.
+* **Smart Calibration Management**: Detects when macOS initiates periodic gas gauge recalibration charges (`ChargingUpForGauging`) and allows you to cancel them on demand (`batterycap uncalibrate`), restoring your target cap immediately.
+* **Zero Persistent Overhead**: Operates without background daemons, helper processes, or persistent RAM usage. Commands execute via Mach XPC and exit immediately.
 
 ---
 
