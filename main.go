@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -177,6 +178,50 @@ func cancelCalibration(limit int) error {
 		return fmt.Errorf("%s", errMsg)
 	}
 	return nil
+}
+
+type LimiterConfig struct {
+	SavedLimit int `json:"saved_limit"`
+}
+
+func configFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "batterycap", "config.json")
+}
+
+func loadSavedLimit() int {
+	p := configFilePath()
+	if p == "" {
+		return 0
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return 0
+	}
+	var cfg LimiterConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return 0
+	}
+	if cfg.SavedLimit >= 80 && cfg.SavedLimit < 100 {
+		return cfg.SavedLimit
+	}
+	return 0
+}
+
+func saveSavedLimit(limit int) {
+	if limit < 80 || limit >= 100 {
+		return
+	}
+	p := configFilePath()
+	if p == "" {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(p), 0755)
+	data, _ := json.MarshalIndent(LimiterConfig{SavedLimit: limit}, "", "  ")
+	_ = os.WriteFile(p, data, 0644)
 }
 
 func progressBar(percent int, width int) string {
@@ -358,8 +403,8 @@ func printHelp() {
 
   %soff%s, %sdisable%s     Disable native charge limit (restores default full charging to 100%%).
 
-  %scancel-calibration%s   Cancel active 100%% calibration and lock charging at target cap.
-  %suncalibrate%s          Aliases: stop-calibration, uncalibrate.
+  %scancel-calibration%s   Cancel active 100%% calibration or session override; lock to target cap.
+  %suncalibrate%s          Aliases: stop-calibration, uncalibrate, resume, cancel-override.
                        Example: %s uncalibrate
 
   %scharge-to-full%s       Temporarily override limit to 100%% for the current session without
@@ -423,6 +468,9 @@ func main() {
 
 	case "on", "enable":
 		targetLimit := 80
+		if saved := loadSavedLimit(); saved >= 80 && saved < 100 {
+			targetLimit = saved
+		}
 		if len(os.Args) >= 3 {
 			n, err := strconv.Atoi(os.Args[2])
 			if err != nil {
@@ -434,6 +482,9 @@ func main() {
 		if err := setMCLLimit(targetLimit); err != nil {
 			fmt.Fprintf(os.Stderr, "%s[!] Failed to enable limiter: %v%s\n", colorRed, err, colorReset)
 			os.Exit(1)
+		}
+		if targetLimit < 100 {
+			saveSavedLimit(targetLimit)
 		}
 		fmt.Printf("%s[✓] Charge limit enabled and set to %d%%.%s\n", colorGreen, targetLimit, colorReset)
 		fmt.Printf("%s    macOS powerd will cap charging at %d%% and engage hardware passthrough.%s\n", colorGray, targetLimit, colorReset)
@@ -452,6 +503,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%s[!] Failed to set limit: %v%s\n", colorRed, err, colorReset)
 			os.Exit(1)
 		}
+		if targetLimit < 100 {
+			saveSavedLimit(targetLimit)
+		}
 		fmt.Printf("%s[✓] Successfully set native charge limit to %d%%.%s\n", colorGreen, targetLimit, colorReset)
 		fmt.Printf("%s    macOS powerd will cap charging at %d%% and engage hardware passthrough.%s\n", colorGray, targetLimit, colorReset)
 
@@ -463,29 +517,40 @@ func main() {
 		fmt.Printf("%s[✓] Native charge limit disabled. Normal full charging restored (100%%).%s\n", colorYellow, colorReset)
 
 	case "charge-to-full", "override":
+		mcl, errMcl := getMCLInfo()
+		if errMcl == nil && mcl.Limit >= 80 && mcl.Limit < 100 {
+			saveSavedLimit(mcl.Limit)
+		}
 		if err := overrideFull(); err != nil {
 			fmt.Fprintf(os.Stderr, "%s[!] Failed to override limit: %v%s\n", colorRed, err, colorReset)
 			os.Exit(1)
 		}
 		fmt.Printf("%s[✓] Session override active: charging to 100%% once without altering saved limit.%s\n", colorCyan, colorReset)
 
-	case "cancel-calibration", "uncalibrate", "stop-calibration", "abort-calibration":
+	case "cancel-calibration", "uncalibrate", "stop-calibration", "abort-calibration", "cancel-override", "unoverride", "resume":
 		targetLimit := 80
-		mcl, errMcl := getMCLInfo()
-		if errMcl == nil && mcl.Limit > 0 {
-			targetLimit = mcl.Limit
+		if saved := loadSavedLimit(); saved >= 80 && saved < 100 {
+			targetLimit = saved
+		} else {
+			mcl, errMcl := getMCLInfo()
+			if errMcl == nil && mcl.Limit >= 80 && mcl.Limit < 100 {
+				targetLimit = mcl.Limit
+			}
 		}
 		if len(os.Args) >= 3 {
 			n, err := strconv.Atoi(os.Args[2])
-			if err == nil {
-				targetLimit = n
+			if err != nil || n < 80 || n > 95 {
+				fmt.Fprintf(os.Stderr, "%s[!] Invalid limit '%s'. Supported: 80, 85, 90, 95%s\n", colorRed, os.Args[2], colorReset)
+				os.Exit(1)
 			}
+			targetLimit = n
 		}
+		saveSavedLimit(targetLimit)
 		if err := cancelCalibration(targetLimit); err != nil {
-			fmt.Fprintf(os.Stderr, "%s[!] Failed to cancel calibration: %v%s\n", colorRed, err, colorReset)
+			fmt.Fprintf(os.Stderr, "%s[!] Failed to cancel calibration / override: %v%s\n", colorRed, err, colorReset)
 			os.Exit(1)
 		}
-		fmt.Printf("%s[✓] Calibration charge cancelled. Limit locked to %d%% (hardware passthrough active).%s\n", colorGreen, targetLimit, colorReset)
+		fmt.Printf("%s[✓] Calibration / override cancelled. Limit locked to %d%% (hardware passthrough active).%s\n", colorGreen, targetLimit, colorReset)
 		fmt.Printf("%s    macOS powerd/PowerUI session target overridden. Mac will not charge to 100%%.%s\n", colorGray, colorReset)
 
 	case "limits":
@@ -516,6 +581,9 @@ func main() {
 			if err := setMCLLimit(n); err != nil {
 				fmt.Fprintf(os.Stderr, "%s[!] %v%s\n", colorRed, err, colorReset)
 				os.Exit(1)
+			}
+			if n >= 80 && n < 100 {
+				saveSavedLimit(n)
 			}
 			fmt.Printf("%s[✓] Native charge limit set to %d%% (MCL active).%s\n", colorGreen, n, colorReset)
 			fmt.Printf("%s    macOS powerd will cap charging at %d%% and engage hardware passthrough.%s\n", colorGray, n, colorReset)

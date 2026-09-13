@@ -22,7 +22,7 @@ A lightweight, native battery charging limiter and hardware power passthrough CL
 | `batterycap on [limit]` | `batterycap 80` | Turn on charge limiting and engage hardware passthrough. Defaults to **80%** if omitted. |
 | `batterycap set <limit>` | `batterycap <number>` | Set a specific hardware charge limit. Supported values: **`80`**, **`85`**, **`90`**, **`95`**, **`100`**. |
 | `batterycap off` | `batterycap disable` | Disable charging limiter (restores normal full charging up to 100%). |
-| `batterycap cancel-calibration` | `batterycap uncalibrate` | Cancel an active 100% calibration charge cycle and lock charging immediately back to your target cap (e.g. 80% or 85%). |
+| `batterycap cancel-calibration` | `batterycap uncalibrate`, `resume`, `cancel-override` | Cancel an active 100% calibration charge cycle or temporary session override and lock charging immediately back to your target cap (e.g. 80% or 85%). |
 | `batterycap charge-to-full`| `batterycap override` | Temporarily charge to 100% for the current session without altering your saved charge cap. |
 | `batterycap limits` | — | Display all native hardware limits supported by this Mac. |
 | `batterycap watch` | — | Open a live interactive terminal dashboard updating every 2 seconds (`Ctrl+C` to exit). |

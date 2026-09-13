@@ -109,6 +109,23 @@ int BatteryGetHardwareInfo(BatteryHardwareInfo *outInfo) {
         CFBooleanRef chgRef = (CFBooleanRef)CFDictionaryGetValue(dict, CFSTR("IsCharging"));
         if (chgRef) outInfo->isCharging = CFBooleanGetValue(chgRef);
 
+        // Cross-check real-time PMU telemetry in ChargerData
+        CFDictionaryRef chgData = (CFDictionaryRef)CFDictionaryGetValue(dict, CFSTR("ChargerData"));
+        if (chgData) {
+            CFNumberRef reasonRef = (CFNumberRef)CFDictionaryGetValue(chgData, CFSTR("NotChargingReason"));
+            int notChargingReason = 0;
+            if (reasonRef) CFNumberGetValue(reasonRef, kCFNumberIntType, &notChargingReason);
+
+            CFNumberRef pmuRef = (CFNumberRef)CFDictionaryGetValue(chgData, CFSTR("PMUConfigured"));
+            int pmuConfigured = 0;
+            if (pmuRef) CFNumberGetValue(pmuRef, kCFNumberIntType, &pmuConfigured);
+
+            // If charging is inhibited by MCL/PMU (0x01000000) or PMU target is 0 mA, charging is inactive
+            if (notChargingReason != 0 || pmuConfigured == 0) {
+                outInfo->isCharging = false;
+            }
+        }
+
         CFNumberRef capRef = (CFNumberRef)CFDictionaryGetValue(dict, CFSTR("CurrentCapacity"));
         if (capRef) CFNumberGetValue(capRef, kCFNumberIntType, &outInfo->currentCapacity);
 
@@ -216,6 +233,12 @@ int BatterySetMCLLimit(unsigned char limit, char *errBuf, int errBufLen) {
 
         NSError *err = nil;
 
+        // Reset any active temporary engagement override (e.g. charge-to-full or gauging)
+        SEL s_reset = NSSelectorFromString(@"resetEngagementOverride");
+        if ([client respondsToSelector:s_reset]) {
+            [client performSelector:s_reset];
+        }
+
         // Ensure MCL is enabled first
         SEL s_enable = NSSelectorFromString(@"enableMCL:");
         if ([client respondsToSelector:s_enable]) {
@@ -238,6 +261,15 @@ int BatterySetMCLLimit(unsigned char limit, char *errBuf, int errBufLen) {
             return -1;
         }
 
+        if (limit < 100) {
+            SEL s_ov = NSSelectorFromString(@"temporarilyOverrideMCLTargetSoC:error:");
+            if ([client respondsToSelector:s_ov]) {
+                BOOL (*ovFn)(id, SEL, unsigned char, NSError **) = (BOOL (*)(id, SEL, unsigned char, NSError **))[client methodForSelector:s_ov];
+                ovFn(client, s_ov, limit, &err);
+            }
+        }
+
+        usleep(250000);
         return 0;
     }
 }
@@ -251,6 +283,12 @@ int BatteryDisableMCL(char *errBuf, int errBufLen) {
         }
 
         NSError *err = nil;
+
+        SEL s_reset = NSSelectorFromString(@"resetEngagementOverride");
+        if ([client respondsToSelector:s_reset]) {
+            [client performSelector:s_reset];
+        }
+
         SEL s_disable = NSSelectorFromString(@"disableMCL:");
         if (![client respondsToSelector:s_disable]) {
             if (errBuf && errBufLen > 0) snprintf(errBuf, errBufLen, "disableMCL: selector not supported");
@@ -266,6 +304,7 @@ int BatteryDisableMCL(char *errBuf, int errBufLen) {
             return -1;
         }
 
+        usleep(200000);
         return 0;
     }
 }
@@ -294,6 +333,7 @@ int BatteryOverrideFull(char *errBuf, int errBufLen) {
             return -1;
         }
 
+        usleep(200000);
         return 0;
     }
 }
@@ -308,15 +348,20 @@ int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen) {
 
         NSError *err = nil;
 
-        // 1. Temporarily override MCL target SoC to the requested limit (e.g. 80 or 85)
-        // This instantly interrupts ChargingUpForGauging (UI state 18 / mode 7) and forces ChargingToMCL
-        SEL s_ov = NSSelectorFromString(@"temporarilyOverrideMCLTargetSoC:error:");
-        if ([client respondsToSelector:s_ov]) {
-            BOOL (*ovFn)(id, SEL, unsigned char, NSError **) = (BOOL (*)(id, SEL, unsigned char, NSError **))[client methodForSelector:s_ov];
-            ovFn(client, s_ov, limit, &err);
+        // 1. Reset engagement override (stops temporary override session or gauging)
+        SEL s_reset = NSSelectorFromString(@"resetEngagementOverride");
+        if ([client respondsToSelector:s_reset]) {
+            [client performSelector:s_reset];
         }
 
-        // 2. Re-assert the persistent MCL limit to lock in hardware passthrough
+        // 2. Ensure MCL is enabled
+        SEL s_enable = NSSelectorFromString(@"enableMCL:");
+        if ([client respondsToSelector:s_enable]) {
+            BOOL (*enFn)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[client methodForSelector:s_enable];
+            enFn(client, s_enable, &err);
+        }
+
+        // 3. Set the persistent MCL limit
         SEL s_set = NSSelectorFromString(@"setMCLLimit:error:");
         if ([client respondsToSelector:s_set]) {
             BOOL (*setFn)(id, SEL, unsigned char, NSError **) = (BOOL (*)(id, SEL, unsigned char, NSError **))[client methodForSelector:s_set];
@@ -329,6 +374,15 @@ int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen) {
             }
         }
 
+        // 4. Force temporary override to the requested limit (e.g. 80 or 85)
+        // This instantly interrupts ChargingUpForGauging (UI state 18 / mode 7) or full charge override
+        SEL s_ov = NSSelectorFromString(@"temporarilyOverrideMCLTargetSoC:error:");
+        if ([client respondsToSelector:s_ov]) {
+            BOOL (*ovFn)(id, SEL, unsigned char, NSError **) = (BOOL (*)(id, SEL, unsigned char, NSError **))[client methodForSelector:s_ov];
+            ovFn(client, s_ov, limit, &err);
+        }
+
+        usleep(250000);
         return 0;
     }
 }
