@@ -347,8 +347,21 @@ int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen) {
         }
 
         NSError *err = nil;
+        SEL s_state = NSSelectorFromString(@"smartChargingUIState:chargeLimit:chargingOverrideAllowed:withError:");
+        BOOL (*stateFn)(id, SEL, unsigned long long *, unsigned long long *, BOOL *, NSError **) = NULL;
+        if ([client respondsToSelector:s_state]) {
+            stateFn = (BOOL (*)(id, SEL, unsigned long long *, unsigned long long *, BOOL *, NSError **))[client methodForSelector:s_state];
+        }
 
-        // 1. Reset engagement override (stops temporary override session or gauging)
+        unsigned long long uiSt = 0;
+        unsigned long long chgLim = 0;
+        BOOL ovAllowed = YES;
+        if (stateFn) {
+            stateFn(client, s_state, &uiSt, &chgLim, &ovAllowed, &err);
+            err = nil;
+        }
+
+        // 1. Reset engagement override (stops temporary user override session)
         SEL s_reset = NSSelectorFromString(@"resetEngagementOverride");
         if ([client respondsToSelector:s_reset]) {
             [client performSelector:s_reset];
@@ -359,6 +372,7 @@ int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen) {
         if ([client respondsToSelector:s_enable]) {
             BOOL (*enFn)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[client methodForSelector:s_enable];
             enFn(client, s_enable, &err);
+            err = nil;
         }
 
         // 3. Set the persistent MCL limit
@@ -374,15 +388,28 @@ int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen) {
             }
         }
 
-        // 4. Force temporary override to the requested limit (e.g. 80 or 85)
-        // This instantly interrupts ChargingUpForGauging (UI state 18 / mode 7) or full charge override
-        SEL s_ov = NSSelectorFromString(@"temporarilyOverrideMCLTargetSoC:error:");
-        if ([client respondsToSelector:s_ov]) {
-            BOOL (*ovFn)(id, SEL, unsigned char, NSError **) = (BOOL (*)(id, SEL, unsigned char, NSError **))[client methodForSelector:s_ov];
-            ovFn(client, s_ov, limit, &err);
+        // 4. Force temporary override to the requested limit if override is allowed
+        if (ovAllowed && uiSt != 18) {
+            SEL s_ov = NSSelectorFromString(@"temporarilyOverrideMCLTargetSoC:error:");
+            if ([client respondsToSelector:s_ov]) {
+                BOOL (*ovFn)(id, SEL, unsigned char, NSError **) = (BOOL (*)(id, SEL, unsigned char, NSError **))[client methodForSelector:s_ov];
+                ovFn(client, s_ov, limit, &err);
+                err = nil;
+            }
         }
 
         usleep(250000);
+
+        // 5. Re-check state to verify whether macOS is enforcing hard gauging calibration
+        if (stateFn) {
+            stateFn(client, s_state, &uiSt, &chgLim, &ovAllowed, &err);
+        }
+
+        if (uiSt == 18 || !ovAllowed) {
+            // Hard gas gauge recalibration active in powerd (mitigation active: 1)
+            return 1;
+        }
+
         return 0;
     }
 }

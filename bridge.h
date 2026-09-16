@@ -38,7 +38,8 @@ int BatteryDisableMCL(char *errBuf, int errBufLen);
 // Temporarily overrides MCL to 100% for current session
 int BatteryOverrideFull(char *errBuf, int errBufLen);
 
-// Cancels an active 100% calibration charge and forces charging back to the target limit
+// Cancels an active 100% session override or checks gas gauge calibration state.
+// Returns: 0 on successful override cancellation, 1 if system calibration is locked by powerd, -1 on error.
 int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen);
 
 #ifdef __cplusplus

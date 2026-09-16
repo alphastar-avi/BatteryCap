@@ -161,17 +161,17 @@ func overrideFull() error {
 	return nil
 }
 
-func cancelCalibration(limit int) error {
+func cancelCalibration(limit int) (int, error) {
 	var errBuf [256]C.char
 	res := C.BatteryCancelCalibration(C.uchar(limit), &errBuf[0], C.int(len(errBuf)))
-	if res != 0 {
+	if res < 0 {
 		errMsg := C.GoString(&errBuf[0])
 		if errMsg == "" {
 			errMsg = "unknown error"
 		}
-		return fmt.Errorf("%s", errMsg)
+		return -1, fmt.Errorf("%s", errMsg)
 	}
-	return nil
+	return int(res), nil
 }
 
 type LimiterConfig struct {
@@ -544,12 +544,23 @@ func main() {
 			targetLimit = n
 		}
 		saveSavedLimit(targetLimit)
-		if err := cancelCalibration(targetLimit); err != nil {
+		res, err := cancelCalibration(targetLimit)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s[!] Failed to cancel calibration / override: %v%s\n", colorRed, err, colorReset)
 			os.Exit(1)
 		}
-		fmt.Printf("%s[✓] Calibration / override cancelled. Limit locked to %d%% (hardware passthrough active).%s\n", colorGreen, targetLimit, colorReset)
-		fmt.Printf("%s    macOS powerd/PowerUI session target overridden. Mac will not charge to 100%%.%s\n", colorGray, colorReset)
+		if res == 1 {
+			fmt.Printf("%s[ℹ] Active Gas Gauge Recalibration in Progress%s\n", colorYellow, colorReset)
+			fmt.Printf("    macOS powerd has initiated a periodic battery calibration charge (ChargingUpForGauging).\n")
+			fmt.Printf("    Apple Silicon's PMU requires an occasional 100%% reference cycle (~every 72h) to recalibrate\n")
+			fmt.Printf("    its impedance track and prevent gas gauge percentage drift.\n\n")
+			fmt.Printf("    %sStatus:%s Target limit is armed and saved at %s%d%%%s. macOS powerd locks manual overrides\n", colorBold, colorReset, colorCyan, targetLimit, colorReset)
+			fmt.Printf("    during calibration. Once the PMU finishes calibration at 100%%, charging will halt and\n")
+			fmt.Printf("    hardware passthrough at %d%% will automatically resume.\n", targetLimit)
+		} else {
+			fmt.Printf("%s[✓] Calibration / override cancelled. Limit locked to %d%% (hardware passthrough active).%s\n", colorGreen, targetLimit, colorReset)
+			fmt.Printf("%s    macOS powerd/PowerUI session target overridden. Mac will not charge to 100%%.%s\n", colorGray, colorReset)
+		}
 
 	case "limits":
 		mcl, err := getMCLInfo()
