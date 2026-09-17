@@ -419,8 +419,8 @@ int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen) {
             stateFn(client, s_state, &uiSt, &chgLim, &ovAllowed, &err);
         }
 
-        if (uiSt == 18 || !ovAllowed) {
-            // Hard gas gauge recalibration active in powerd (mitigation active: 1)
+        if (uiSt == 18) {
+            // Hard gas gauge recalibration actively charging in powerd (ChargingUpForGauging)
             return 1;
         }
 
