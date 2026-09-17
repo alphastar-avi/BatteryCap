@@ -41,6 +41,7 @@ Rather than attempting to bypass SIP, patch kernel extensions, or force unauthor
 | `batterycap set <limit>` | `batterycap <number>` | Set a specific hardware charge limit with **1% granularity** (e.g. `batterycap 82`, `batterycap set 87`). Supported range: **`80`** to **`100`**. |
 | `batterycap off` | `batterycap disable` | Disable charging limiter (restores normal full charging up to 100%). |
 | `batterycap cancel-calibration` | `batterycap uncalibrate`, `resume`, `cancel-override` | Cancel a temporary session override (`charge-to-full`), or inspect and re-arm your target cap (e.g. 80%) during periodic macOS gas gauge recalibration. |
+| `batterycap calibration` | `batterycap calib`, `gauge` | Inspect battery gas gauge calibration status, last full calibration timestamp, and estimated next recalibration window. |
 | `batterycap charge-to-full`| `batterycap override` | Temporarily charge to 100% for the current session without altering your saved charge cap. |
 | `batterycap limits` | — | Display supported hardware charge limit range (80% – 100%) and native presets. |
 | `batterycap watch` | — | Open a live interactive terminal dashboard updating every 2 seconds (`Ctrl+C` to exit). |

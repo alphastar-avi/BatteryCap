@@ -15,6 +15,9 @@ typedef struct {
     int healthMaxPercent;     // True battery health maximum capacity (e.g. 87%)
     int nominalCapacity;      // Nominal mAh
     int designCapacity;       // Design mAh
+    int fullChargeCapacity;   // Full charge capacity mAh (from BatteryData)
+    long long lastCalibrationTimestamp; // Last FullPathUpdated timestamp (epoch seconds)
+    bool fullyCharged;        // Battery reports fully charged
     int voltageMv;
     int amperageMa;
     bool isCharging;

@@ -126,10 +126,18 @@ int BatteryGetHardwareInfo(BatteryHardwareInfo *outInfo) {
             }
         }
 
+        // Timestamp of last full charge / gas gauge calibration reference point
+        CFNumberRef fullPathRef = (CFNumberRef)CFDictionaryGetValue(dict, CFSTR("FullPathUpdated"));
+        if (fullPathRef) {
+            long long ts = 0;
+            CFNumberGetValue(fullPathRef, kCFNumberLongLongType, &ts);
+            outInfo->lastCalibrationTimestamp = ts;
+        }
+
         CFNumberRef capRef = (CFNumberRef)CFDictionaryGetValue(dict, CFSTR("CurrentCapacity"));
         if (capRef) CFNumberGetValue(capRef, kCFNumberIntType, &outInfo->currentCapacity);
 
-        // Sub-dictionary BatteryData for true mAh nominal and design capacity
+        // Sub-dictionary BatteryData for true mAh nominal, full charge, and design capacity
         CFDictionaryRef bData = (CFDictionaryRef)CFDictionaryGetValue(dict, CFSTR("BatteryData"));
         if (bData) {
             CFNumberRef nomRef = (CFNumberRef)CFDictionaryGetValue(bData, CFSTR("NominalChargeCapacity"));
@@ -137,6 +145,12 @@ int BatteryGetHardwareInfo(BatteryHardwareInfo *outInfo) {
 
             CFNumberRef desRef = (CFNumberRef)CFDictionaryGetValue(bData, CFSTR("DesignCapacity"));
             if (desRef) CFNumberGetValue(desRef, kCFNumberIntType, &outInfo->designCapacity);
+
+            CFNumberRef fccRef = (CFNumberRef)CFDictionaryGetValue(bData, CFSTR("FullChargeCapacity"));
+            if (fccRef) CFNumberGetValue(fccRef, kCFNumberIntType, &outInfo->fullChargeCapacity);
+
+            CFBooleanRef fcRef = (CFBooleanRef)CFDictionaryGetValue(bData, CFSTR("FullyCharged"));
+            if (fcRef) outInfo->fullyCharged = CFBooleanGetValue(fcRef);
         }
 
         if (outInfo->externalConnected && !outInfo->isCharging) {

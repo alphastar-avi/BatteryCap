@@ -33,20 +33,23 @@ const (
 )
 
 type HardwareInfo struct {
-	DeviceName        string  `json:"device_name"`
-	Condition         string  `json:"condition"`
-	CycleCount        int     `json:"cycle_count"`
-	CurrentCapacity   int     `json:"current_capacity_percent"`
-	HealthMaxPercent  int     `json:"health_max_capacity_percent"`
-	NominalCapacity   int     `json:"nominal_capacity_mah"`
-	DesignCapacity    int     `json:"design_capacity_mah"`
-	VoltageMv         int     `json:"voltage_mv"`
-	VoltageV          float64 `json:"voltage_v"`
-	AmperageMa        int     `json:"amperage_ma"`
-	IsCharging        bool    `json:"is_charging"`
-	ExternalConnected bool    `json:"external_connected"`
-	IsPassthrough     bool    `json:"is_passthrough"`
-	UIState           int     `json:"ui_state"`
+	DeviceName               string  `json:"device_name"`
+	Condition                string  `json:"condition"`
+	CycleCount               int     `json:"cycle_count"`
+	CurrentCapacity          int     `json:"current_capacity_percent"`
+	HealthMaxPercent         int     `json:"health_max_capacity_percent"`
+	NominalCapacity          int     `json:"nominal_capacity_mah"`
+	DesignCapacity           int     `json:"design_capacity_mah"`
+	FullChargeCapacity       int     `json:"full_charge_capacity_mah"`
+	LastCalibrationTimestamp int64   `json:"last_calibration_timestamp"`
+	FullyCharged             bool    `json:"fully_charged"`
+	VoltageMv                int     `json:"voltage_mv"`
+	VoltageV                 float64 `json:"voltage_v"`
+	AmperageMa               int     `json:"amperage_ma"`
+	IsCharging               bool    `json:"is_charging"`
+	ExternalConnected        bool    `json:"external_connected"`
+	IsPassthrough            bool    `json:"is_passthrough"`
+	UIState                  int     `json:"ui_state"`
 }
 
 type MCLInfo struct {
@@ -57,9 +60,26 @@ type MCLInfo struct {
 	UIState         int   `json:"ui_state"`
 }
 
+type CalibrationInfo struct {
+	IsCalibrated             bool   `json:"is_calibrated"`
+	InProgress               bool   `json:"in_progress"`
+	LastCalibrationTimestamp int64  `json:"last_calibration_timestamp"`
+	LastCalibrationDate      string `json:"last_calibration_date"`
+	TimeSinceCalibration     string `json:"time_since_calibration"`
+	EstimatedNextTimestamp   int64  `json:"estimated_next_timestamp"`
+	EstimatedNextDate        string `json:"estimated_next_date"`
+	EstimatedTimeRemaining   string `json:"estimated_time_remaining"`
+	Algorithm                string `json:"algorithm"`
+	Controller               string `json:"controller"`
+	FullChargeCapacityMah    int    `json:"full_charge_capacity_mah"`
+	DesignCapacityMah        int    `json:"design_capacity_mah"`
+	ActiveChargeLimit        int    `json:"active_charge_limit_percent"`
+}
+
 type BatteryReport struct {
-	Hardware HardwareInfo `json:"hardware"`
-	Limiter  MCLInfo      `json:"limiter"`
+	Hardware    HardwareInfo    `json:"hardware"`
+	Limiter     MCLInfo         `json:"limiter"`
+	Calibration CalibrationInfo `json:"calibration"`
 }
 
 func getHardwareInfo() (HardwareInfo, error) {
@@ -73,20 +93,23 @@ func getHardwareInfo() (HardwareInfo, error) {
 	cond := C.GoString(&cInfo.healthCondition[0])
 	voltMv := int(cInfo.voltageMv)
 	return HardwareInfo{
-		DeviceName:        devName,
-		Condition:         cond,
-		CycleCount:        int(cInfo.cycleCount),
-		CurrentCapacity:   int(cInfo.currentCapacity),
-		HealthMaxPercent:  int(cInfo.healthMaxPercent),
-		NominalCapacity:   int(cInfo.nominalCapacity),
-		DesignCapacity:    int(cInfo.designCapacity),
-		VoltageMv:         voltMv,
-		VoltageV:          float64(voltMv) / 1000.0,
-		AmperageMa:        int(cInfo.amperageMa),
-		IsCharging:        bool(cInfo.isCharging),
-		ExternalConnected: bool(cInfo.externalConnected),
-		IsPassthrough:     bool(cInfo.isPassthrough),
-		UIState:           int(cInfo.uiState),
+		DeviceName:               devName,
+		Condition:                cond,
+		CycleCount:               int(cInfo.cycleCount),
+		CurrentCapacity:          int(cInfo.currentCapacity),
+		HealthMaxPercent:         int(cInfo.healthMaxPercent),
+		NominalCapacity:          int(cInfo.nominalCapacity),
+		DesignCapacity:           int(cInfo.designCapacity),
+		FullChargeCapacity:       int(cInfo.fullChargeCapacity),
+		LastCalibrationTimestamp: int64(cInfo.lastCalibrationTimestamp),
+		FullyCharged:             bool(cInfo.fullyCharged),
+		VoltageMv:                voltMv,
+		VoltageV:                 float64(voltMv) / 1000.0,
+		AmperageMa:               int(cInfo.amperageMa),
+		IsCharging:               bool(cInfo.isCharging),
+		ExternalConnected:        bool(cInfo.externalConnected),
+		IsPassthrough:            bool(cInfo.isPassthrough),
+		UIState:                  int(cInfo.uiState),
 	}, nil
 }
 
@@ -244,6 +267,63 @@ func progressBar(percent int, width int) string {
 	) + colorReset
 }
 
+func computeCalibrationInfo(hw HardwareInfo, mcl MCLInfo) CalibrationInfo {
+	info := CalibrationInfo{
+		InProgress:            hw.UIState == 18,
+		Algorithm:             "Texas Instruments Impedance Track (IT)",
+		Controller:            hw.DeviceName,
+		FullChargeCapacityMah: hw.FullChargeCapacity,
+		DesignCapacityMah:     hw.DesignCapacity,
+		ActiveChargeLimit:     mcl.Limit,
+	}
+
+	if hw.LastCalibrationTimestamp > 0 {
+		info.IsCalibrated = hw.UIState != 18
+		info.LastCalibrationTimestamp = hw.LastCalibrationTimestamp
+		lastDate := time.Unix(hw.LastCalibrationTimestamp, 0)
+		info.LastCalibrationDate = lastDate.Format("Mon Jan 02 15:04:05 MST 2006")
+
+		since := time.Since(lastDate)
+		if since < time.Minute {
+			info.TimeSinceCalibration = "just now"
+		} else if since < time.Hour {
+			info.TimeSinceCalibration = fmt.Sprintf("%d minutes ago", int(since.Minutes()))
+		} else if since < 24*time.Hour {
+			info.TimeSinceCalibration = fmt.Sprintf("%.1f hours ago", since.Hours())
+		} else {
+			info.TimeSinceCalibration = fmt.Sprintf("%.1f days ago", since.Hours()/24.0)
+		}
+
+		// Rolling 72-hour window under continuous AC hold at MCL
+		nextDate := lastDate.Add(72 * time.Hour)
+		info.EstimatedNextTimestamp = nextDate.Unix()
+		info.EstimatedNextDate = nextDate.Format("Mon Jan 02 15:04:05 MST 2006")
+
+		remaining := time.Until(nextDate)
+		if info.InProgress {
+			info.EstimatedTimeRemaining = "In progress (active calibration cycle)"
+		} else if remaining > 0 {
+			if remaining > 24*time.Hour {
+				days := int(remaining.Hours()) / 24
+				hours := int(remaining.Hours()) % 24
+				info.EstimatedTimeRemaining = fmt.Sprintf("~%d days %d hours remaining", days, hours)
+			} else {
+				info.EstimatedTimeRemaining = fmt.Sprintf("~%.1f hours remaining", remaining.Hours())
+			}
+		} else {
+			info.EstimatedTimeRemaining = "Due soon under continuous AC hold"
+		}
+	} else {
+		info.IsCalibrated = false
+		info.LastCalibrationDate = "Unknown"
+		info.TimeSinceCalibration = "Unknown"
+		info.EstimatedNextDate = "Unknown"
+		info.EstimatedTimeRemaining = "Unknown"
+	}
+
+	return info
+}
+
 func printStatus(jsonOutput bool) {
 	hw, errHw := getHardwareInfo()
 	if errHw != nil {
@@ -257,8 +337,10 @@ func printStatus(jsonOutput bool) {
 		os.Exit(1)
 	}
 
+	calib := computeCalibrationInfo(hw, mcl)
+
 	if jsonOutput {
-		report := BatteryReport{Hardware: hw, Limiter: mcl}
+		report := BatteryReport{Hardware: hw, Limiter: mcl, Calibration: calib}
 		data, _ := json.MarshalIndent(report, "", "  ")
 		fmt.Println(string(data))
 		return
@@ -294,6 +376,15 @@ func printStatus(jsonOutput bool) {
 	if hw.NominalCapacity > 0 && hw.DesignCapacity > 0 {
 		fmt.Printf("  %sCapacity Telemetry:%s      %d mAh nominal / %d mAh design\n",
 			colorGray, colorReset, hw.NominalCapacity, hw.DesignCapacity)
+	}
+
+	// Gas Gauge Calibration Telemetry
+	if calib.InProgress {
+		fmt.Printf("  %sGas Gauge Status:%s        %s%sRecalibration In Progress (Targeting 100%%)%s\n",
+			colorBold, colorReset, colorBold, colorYellow, colorReset)
+	} else if calib.IsCalibrated {
+		fmt.Printf("  %sGas Gauge Status:%s        %sCalibrated%s (Last: %s | Next: %s)\n",
+			colorBold, colorReset, colorGreen, colorReset, calib.TimeSinceCalibration, calib.EstimatedTimeRemaining)
 	}
 
 	// Charging State & Passthrough
@@ -352,6 +443,67 @@ func printStatus(jsonOutput bool) {
 	fmt.Printf("  %sRuntime Architecture:%s    Apple PowerUI / powerd Mach XPC\n\n", colorGray, colorReset)
 }
 
+func printCalibrationInfo(jsonOutput bool) {
+	hw, errHw := getHardwareInfo()
+	if errHw != nil {
+		fmt.Fprintf(os.Stderr, "%s[!] Error retrieving hardware telemetry: %v%s\n", colorRed, errHw, colorReset)
+		os.Exit(1)
+	}
+
+	mcl, _ := getMCLInfo()
+	calib := computeCalibrationInfo(hw, mcl)
+
+	if jsonOutput {
+		data, _ := json.MarshalIndent(calib, "", "  ")
+		fmt.Println(string(data))
+		return
+	}
+
+	fmt.Printf("\n%s%sBatterycap Gas Gauge & Calibration Telemetry%s\n", colorBold, colorCyan, colorReset)
+	fmt.Printf("%s──────────────────────────────────────────────────────────────────%s\n", colorGray, colorReset)
+
+	statusStr := fmt.Sprintf("%s%sCalibrated (Optimal Gas Gauge Accuracy)%s", colorBold, colorGreen, colorReset)
+	if calib.InProgress {
+		statusStr = fmt.Sprintf("%s%sRecalibration In Progress (Targeting 100%%)%s", colorBold, colorYellow, colorReset)
+	} else if !calib.IsCalibrated {
+		statusStr = fmt.Sprintf("%s%sCalibration Needed / Unknown%s", colorBold, colorYellow, colorReset)
+	}
+	fmt.Printf("  %sGas Gauge Status:%s        %s\n", colorBold, colorReset, statusStr)
+
+	if calib.LastCalibrationTimestamp > 0 {
+		fmt.Printf("  %sLast Full Calibration:%s   %s (%s)\n",
+			colorBold, colorReset, calib.LastCalibrationDate, calib.TimeSinceCalibration)
+		fmt.Printf("  %sEstimated Next Window:%s  ~3 days continuous AC hold (%s)\n",
+			colorBold, colorReset, calib.EstimatedNextDate)
+		fmt.Printf("  %sEstimated Remaining:%s    %s\n",
+			colorBold, colorReset, calib.EstimatedTimeRemaining)
+	}
+
+	fmt.Printf("%s──────────────────────────────────────────────────────────────────%s\n", colorGray, colorReset)
+	fmt.Printf("  %sHardware Controller:%s     %s\n", colorBold, colorReset, calib.Controller)
+	fmt.Printf("  %sAlgorithm Architecture:%s  %s\n", colorBold, colorReset, calib.Algorithm)
+	fmt.Printf("  %sCalibrated Full Cap:%s     %d mAh nominal / %d mAh design\n",
+		colorBold, colorReset, hw.NominalCapacity, calib.DesignCapacityMah)
+	if calib.FullChargeCapacityMah > 0 {
+		fmt.Printf("  %sTrue Full Charge Cap:%s    %d mAh (FCC at 100%% reference point)\n",
+			colorGray, colorReset, calib.FullChargeCapacityMah)
+	}
+	limitStr := fmt.Sprintf("%d%%", calib.ActiveChargeLimit)
+	if !mcl.Enabled {
+		limitStr = "100% (Limiter Disabled)"
+	}
+	fmt.Printf("  %sActive Charge Limit:%s     %s (Hardware Passthrough Armed)\n",
+		colorBold, colorReset, limitStr)
+
+	fmt.Printf("%s──────────────────────────────────────────────────────────────────%s\n", colorGray, colorReset)
+	fmt.Printf("  %sCalibration Context:%s\n", colorGray, colorReset)
+	fmt.Printf("    Apple Silicon's PMU calculates battery capacity and health via cell impedance\n")
+	fmt.Printf("    tracking. Holding the battery continuously at 80%% causes DOD0 (Depth of Discharge 0)\n")
+	fmt.Printf("    reference points to drift. macOS powerd enforces a 100%% calibration top-off every ~72h\n")
+	fmt.Printf("    under uninterrupted AC power. Normal on-battery discharge cycles refresh impedance tracking\n")
+	fmt.Printf("    naturally, postponing or eliminating the need for periodic calibration charges.\n\n")
+}
+
 func runWatchMode() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -405,6 +557,10 @@ func printHelp() {
   %suncalibrate%s          Aliases: stop-calibration, uncalibrate, resume, cancel-override.
                        Example: %s uncalibrate
 
+  %scalibration%s          Inspect gas gauge calibration status, last calibration timestamp,
+  %scalib%s                and estimated next recalibration window.
+                       Example: %s calibration
+
   %scharge-to-full%s       Temporarily override limit to 100%% for the current session without
   %soverride%s             modifying your saved charge threshold.
 
@@ -432,6 +588,8 @@ func printHelp() {
 		colorBold, colorReset, prog,
 		colorBold, colorReset, prog,
 		colorBold, colorReset, colorBold, colorReset,
+		colorBold, colorReset,
+		colorBold, colorReset, prog,
 		colorBold, colorReset,
 		colorBold, colorReset, prog,
 		colorBold, colorReset,
@@ -463,6 +621,15 @@ func main() {
 
 	case "--json", "-j":
 		printStatus(true)
+
+	case "calibration", "calib", "gauge", "calibration-status", "calibration-info":
+		jsonOut := false
+		for _, arg := range os.Args[2:] {
+			if arg == "--json" || arg == "-j" {
+				jsonOut = true
+			}
+		}
+		printCalibrationInfo(jsonOut)
 
 	case "on", "enable":
 		targetLimit := 80
