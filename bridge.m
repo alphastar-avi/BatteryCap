@@ -137,7 +137,27 @@ int BatteryGetHardwareInfo(BatteryHardwareInfo *outInfo) {
         CFNumberRef capRef = (CFNumberRef)CFDictionaryGetValue(dict, CFSTR("CurrentCapacity"));
         if (capRef) CFNumberGetValue(capRef, kCFNumberIntType, &outInfo->currentCapacity);
 
-        // Sub-dictionary BatteryData for true mAh nominal, full charge, and design capacity
+        // Time remaining to full in minutes
+        CFNumberRef timeRef = (CFNumberRef)CFDictionaryGetValue(dict, CFSTR("AvgTimeToFull"));
+        if (timeRef) {
+            int tMin = 0;
+            CFNumberGetValue(timeRef, kCFNumberIntType, &tMin);
+            if (tMin > 0 && tMin < 60000) {
+                outInfo->avgTimeToFullMinutes = tMin;
+            }
+        }
+        if (outInfo->avgTimeToFullMinutes <= 0) {
+            CFNumberRef trRef = (CFNumberRef)CFDictionaryGetValue(dict, CFSTR("TimeRemaining"));
+            if (trRef) {
+                int tMin = 0;
+                CFNumberGetValue(trRef, kCFNumberIntType, &tMin);
+                if (tMin > 0 && tMin < 60000) {
+                    outInfo->avgTimeToFullMinutes = tMin;
+                }
+            }
+        }
+
+        // Sub-dictionary BatteryData for true mAh nominal, full charge, remaining, and design capacity
         CFDictionaryRef bData = (CFDictionaryRef)CFDictionaryGetValue(dict, CFSTR("BatteryData"));
         if (bData) {
             CFNumberRef nomRef = (CFNumberRef)CFDictionaryGetValue(bData, CFSTR("NominalChargeCapacity"));
@@ -148,6 +168,9 @@ int BatteryGetHardwareInfo(BatteryHardwareInfo *outInfo) {
 
             CFNumberRef fccRef = (CFNumberRef)CFDictionaryGetValue(bData, CFSTR("FullChargeCapacity"));
             if (fccRef) CFNumberGetValue(fccRef, kCFNumberIntType, &outInfo->fullChargeCapacity);
+
+            CFNumberRef remRef = (CFNumberRef)CFDictionaryGetValue(bData, CFSTR("RemainingCapacity"));
+            if (remRef) CFNumberGetValue(remRef, kCFNumberIntType, &outInfo->remainingCapacity);
 
             CFBooleanRef fcRef = (CFBooleanRef)CFDictionaryGetValue(bData, CFSTR("FullyCharged"));
             if (fcRef) outInfo->fullyCharged = CFBooleanGetValue(fcRef);
@@ -160,6 +183,35 @@ int BatteryGetHardwareInfo(BatteryHardwareInfo *outInfo) {
         CFRelease(dict);
     }
     IOObjectRelease(service);
+
+    // Query individual battery cells / banks
+    io_iterator_t iter = IO_OBJECT_NULL;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AppleSmartBatteryBank"), &iter) == KERN_SUCCESS && iter) {
+        io_service_t bank;
+        int idx = 0;
+        while ((bank = IOIteratorNext(iter)) && idx < 4) {
+            CFMutableDictionaryRef bDict = NULL;
+            if (IORegistryEntryCreateCFProperties(bank, &bDict, kCFAllocatorDefault, 0) == KERN_SUCCESS && bDict) {
+                CFNumberRef bIdRef = (CFNumberRef)CFDictionaryGetValue(bDict, CFSTR("BankID"));
+                int bId = idx;
+                if (bIdRef) CFNumberGetValue(bIdRef, kCFNumberIntType, &bId);
+                outInfo->cells[idx].bankId = bId;
+
+                CFDictionaryRef bankData = (CFDictionaryRef)CFDictionaryGetValue(bDict, CFSTR("BatteryData"));
+                if (bankData) {
+                    CFNumberRef vRef = (CFNumberRef)CFDictionaryGetValue(bankData, CFSTR("CellVoltage"));
+                    if (vRef) CFNumberGetValue(vRef, kCFNumberIntType, &outInfo->cells[idx].voltageMv);
+                    CFNumberRef qRef = (CFNumberRef)CFDictionaryGetValue(bankData, CFSTR("Qmax"));
+                    if (qRef) CFNumberGetValue(qRef, kCFNumberIntType, &outInfo->cells[idx].qmaxMah);
+                }
+                CFRelease(bDict);
+                idx++;
+            }
+            IOObjectRelease(bank);
+        }
+        outInfo->cellCount = idx;
+        IOObjectRelease(iter);
+    }
 
     // Query UI state to check for ChargingUpForGauging
     int dummyEn = 0, dummyLim = 0, dummySupp = 0, dummyCount = 0;
@@ -420,8 +472,13 @@ int BatteryCancelCalibration(unsigned char limit, char *errBuf, int errBufLen) {
         }
 
         if (uiSt == 18) {
-            // Hard gas gauge recalibration actively charging in powerd (ChargingUpForGauging)
-            return 1;
+            BatteryHardwareInfo hw;
+            if (BatteryGetHardwareInfo(&hw) == 0) {
+                if (!hw.isCharging && hw.currentCapacity >= 99) {
+                    return 2; // Calibration reached 100%, hardware passthrough engaged (0 mA)
+                }
+            }
+            return 1; // Actively charging towards 100%
         }
 
         return 0;

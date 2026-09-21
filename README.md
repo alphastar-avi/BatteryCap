@@ -18,7 +18,7 @@ Rather than attempting to bypass SIP, patch kernel extensions, or force unauthor
 
 * **Native Mach XPC Interface**: Directly communicates with Apple's `com.apple.powerui.smartChargeManager` XPC service in user-space.
 * **True Hardware Passthrough**: Once the battery reaches the target cap, the Power Management Unit (PMU) disengages charging circuitry (`PMUConfigured = 0`, `NotChargingReason = 0x01000000`). The Mac runs 100% on external AC power from the USB-C rail with 0 net battery draw.
-* **Smart Calibration Management**: Detects when macOS initiates periodic gas gauge recalibration charges (`ChargingUpForGauging`) and manages temporary overrides (`batterycap uncalibrate`). Accurately reports whether a 100% session override was user-initiated or enforced by the PMU for gas gauge impedance tracking, keeping your target limit armed for automatic passthrough resumption.
+* **Smart Calibration & Multi-Cell Telemetry**: Detects when macOS initiates periodic gas gauge recalibration charges (`ChargingUpForGauging`), provides estimated time and mAh remaining until full 100% reference, monitors multi-cell pack telemetry (voltages and `Qmax` per cell via `AppleSmartBatteryBank`), and manages temporary overrides (`batterycap uncalibrate`). Accurately distinguishes between active calibration charging and post-100% calibration hardware passthrough, keeping your target limit armed for automatic passthrough resumption.
 * **Zero Persistent Overhead**: Operates without background daemons, helper processes, or persistent RAM usage. Commands execute via Mach XPC and exit immediately.
 
 ### Supported Charge Limit Range (80% – 100%)
@@ -35,13 +35,13 @@ Rather than attempting to bypass SIP, patch kernel extensions, or force unauthor
 
 | Command | Shorthand / Alternative | Description |
 | :--- | :--- | :--- |
-| `batterycap status` | `batterycap` | View current battery SoC, power source, charging mode, passthrough state, real battery health (e.g. 87%), and active limit. |
+| `batterycap status` | `batterycap` | View current battery SoC, power source, charging mode, passthrough state, real battery health (e.g. 87%), individual cell voltages/Qmax, and active limit. |
 | `batterycap status -j` | `batterycap -j`, `--json` | Output full telemetry & configuration in machine-readable **JSON** format (useful for Sketchybar, Waybar, tmux). |
 | `batterycap on [limit]` | `batterycap 80`, `batterycap 82` | Turn on charge limiting and engage hardware passthrough (80% – 100%). Defaults to **80%** if omitted. |
 | `batterycap set <limit>` | `batterycap <number>` | Set a specific hardware charge limit with **1% granularity** (e.g. `batterycap 82`, `batterycap set 87`). Supported range: **`80`** to **`100`**. |
 | `batterycap off` | `batterycap disable` | Disable charging limiter (restores normal full charging up to 100%). |
-| `batterycap cancel-calibration` | `batterycap uncalibrate`, `resume`, `cancel-override` | Cancel a temporary session override (`charge-to-full`), or inspect and re-arm your target cap (e.g. 80%) during periodic macOS gas gauge recalibration. |
-| `batterycap calibration` | `batterycap calib`, `gauge` | Inspect battery gas gauge calibration status, last full calibration timestamp, and estimated next recalibration window. |
+| `batterycap cancel-calibration` | `batterycap uncalibrate`, `resume`, `cancel-override` | Cancel a temporary session override (`charge-to-full`), view calibration time/capacity remaining, or re-arm target cap (e.g. 80%) during periodic macOS gas gauge recalibration. |
+| `batterycap calibration` | `batterycap calib`, `gauge` | Inspect battery gas gauge calibration status, 3-cell pack breakdown (voltage & Qmax), last calibration timestamp, and estimated time remaining. |
 | `batterycap charge-to-full`| `batterycap override` | Temporarily charge to 100% for the current session without altering your saved charge cap. |
 | `batterycap limits` | — | Display supported hardware charge limit range (80% – 100%) and native presets. |
 | `batterycap watch` | — | Open a live interactive terminal dashboard updating every 2 seconds (`Ctrl+C` to exit). |
